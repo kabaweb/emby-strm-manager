@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador STRM - Emby</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #1e1e2e; color: #cdd6f4; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: #313244; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        h1 { color: #89b4fa; text-align: center; }
+        label { display: block; margin-top: 15px; font-weight: bold; }
+        select, input, button { width: 100%; padding: 10px; margin-top: 5px; border-radius: 5px; border: 1px solid #45475a; background: #181825; color: #cdd6f4; box-sizing: border-box; }
+        button { background-color: #a6e3a1; color: #11111b; font-weight: bold; cursor: pointer; border: none; margin-top: 20px; }
+        button:hover { background-color: #94e2d5; }
+        #message { margin-top: 15px; text-align: center; font-weight: bold; color: #a6e3a1; }
+        .current-path { background: #11111b; padding: 10px; border-radius: 5px; margin-top: 20px; font-family: monospace; }
+        #new_subfolder_div { display: none; margin-top: 10px; padding: 10px; border-left: 3px solid #89b4fa; background: #1e1e2e;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gerenciador de Mídia Emby</h1>
+        <p>Defina onde os novos arquivos `.strm` recebidos pelo Webhook serão salvos.</p>
+        
+        <form id="configForm">
+            <label for="category">Categoria (Pasta Principal):</label>
+            <select id="category" name="category">
+                {% for cat in categories %}
+                    <option value="{{ cat }}" {% if cat == current_config.category %}selected{% endif %}>{{ cat|title }}</option>
+                {% endfor %}
+            </select>
+
+            <label for="subfolder_select">Subpasta (Série, Dorama, etc.):</label>
+            <select id="subfolder_select" name="subfolder_select">
+                <option value="">Nenhuma (Salvar solto na raiz)</option>
+                </select>
+
+            <div id="new_subfolder_div">
+                <label for="new_subfolder">Nome da Nova Subpasta:</label>
+                <input type="text" id="new_subfolder" name="new_subfolder" placeholder="Ex: Game of Thrones (2011)">
+            </div>
+
+            <button type="submit">Salvar Destino</button>
+        </form>
+
+        <div id="message"></div>
+
+        <div class="current-path">
+            <strong>Caminho Atual de Destino:</strong><br>
+            /mnt/storage/docker/emby/<span id="display-cat">{{ current_config.category }}</span>/<span id="display-sub">{{ current_config.subfolder }}</span>
+        </div>
+    </div>
+
+    <script>
+        const categorySelect = document.getElementById('category');
+        const subfolderSelect = document.getElementById('subfolder_select');
+        const newSubfolderDiv = document.getElementById('new_subfolder_div');
+        const newSubfolderInput = document.getElementById('new_subfolder');
+        
+        // Mantém a subpasta atual vinda do backend para tentar pré-selecionar
+        const currentSubfolder = "{{ current_config.subfolder }}";
+
+        // Função para carregar as pastas existentes do backend
+        async function loadSubfolders(category) {
+            const res = await fetch(`/subfolders/${category}`);
+            const data = await res.json();
+            
+            // Limpa as opções atuais
+            subfolderSelect.innerHTML = '<option value="">Nenhuma (Salvar solto na raiz)</option>';
+            
+            // Adiciona as pastas existentes
+            data.subfolders.forEach(sf => {
+                const opt = document.createElement('option');
+                opt.value = sf;
+                opt.textContent = sf;
+                if (sf === currentSubfolder) opt.selected = true;
+                subfolderSelect.appendChild(opt);
+            });
+            
+            // Adiciona a opção de criar nova
+            const newOpt = document.createElement('option');
+            newOpt.value = 'NEW';
+            newOpt.textContent = '+ Criar Nova Subpasta...';
+            subfolderSelect.appendChild(newOpt);
+
+            checkNewSubfolderToggle();
+        }
+
+        // Mostra/Oculta o campo de digitar o nome da nova pasta
+        function checkNewSubfolderToggle() {
+            if (subfolderSelect.value === 'NEW') {
+                newSubfolderDiv.style.display = 'block';
+                newSubfolderInput.required = true;
+            } else {
+                newSubfolderDiv.style.display = 'none';
+                newSubfolderInput.required = false;
+                newSubfolderInput.value = "";
+            }
+        }
+
+        // Eventos
+        categorySelect.addEventListener('change', (e) => loadSubfolders(e.target.value));
+        subfolderSelect.addEventListener('change', checkNewSubfolderToggle);
+
+        // Submissão do formulário
+        document.getElementById('configForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            
+            const response = await fetch('/set-target', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            
+            if(result.status === 'success') {
+                document.getElementById('message').innerText = result.message;
+                
+                // Atualiza o painel verde embaixo
+                let finalSub = formData.get('subfolder_select') === 'NEW' ? formData.get('new_subfolder') : formData.get('subfolder_select');
+                document.getElementById('display-cat').innerText = formData.get('category');
+                document.getElementById('display-sub').innerText = finalSub;
+                
+                setTimeout(() => document.getElementById('message').innerText = '', 3000);
+                
+                // Recarrega a lista para já mostrar a pasta recém criada sem precisar do botão +
+                loadSubfolders(categorySelect.value);
+            }
+        });
+
+        // Carrega a lista inicial quando a página abre
+        loadSubfolders(categorySelect.value);
+    </script>
+</body>
+</html>

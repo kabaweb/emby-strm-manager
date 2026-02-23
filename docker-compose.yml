@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  emby-strm-manager:
+    build: .
+    # Descomente a linha abaixo quando for usar a imagem puxada do Git
+    # image: ghcr.io/SEU_USUARIO_GITHUB/emby-strm-manager:latest
+    container_name: emby-strm-manager
+    ports:
+      - "8000:8000"
+    environment:
+      - WEB_USERNAME=kabacorp      # Mude para o usuário que desejar
+      - WEB_PASSWORD=ed6433@@   # Mude para a senha que desejar
+    volumes:
+      - /mnt/storage/docker/emby:/emby_media
+    networks:
+      - kabacorp
+    restart: unless-stopped
+
+networks:
+  kabacorp:
+    external: true
