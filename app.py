@@ -96,10 +96,43 @@ async def list_files(category: str, subfolder: str = ""):
     if not os.path.exists(target_dir):
         return {"files": []}
     
-    # Lista apenas os arquivos (ignora pastas)
-    files = [f for f in os.listdir(target_dir) if os.path.isfile(os.path.join(target_dir, f))]
+    # FILTRO: Lista apenas os arquivos que terminam com .strm (ignora pastas e outros arquivos)
+    files = [f for f in os.listdir(target_dir) if os.path.isfile(os.path.join(target_dir, f)) and f.endswith('.strm')]
     files.sort()
     return {"files": files}
+
+@app.get("/recent-files", dependencies=[Depends(verify_credentials)])
+async def get_recent_files(limit: int = 15):
+    recent_files = []
+    
+    # Percorre todas as categorias configuradas
+    for category in CATEGORIES:
+        cat_path = os.path.join(BASE_DIR, category)
+        if not os.path.exists(cat_path):
+            continue
+            
+        # Vasculha a categoria e suas subpastas
+        for root, dirs, files in os.walk(cat_path):
+            for file in files:
+                if file.endswith('.strm'):
+                    full_path = os.path.join(root, file)
+                    
+                    # Descobre o nome da subpasta (se houver)
+                    rel_path = os.path.relpath(root, cat_path)
+                    subfolder = "" if rel_path == "." else rel_path
+                    
+                    # Pega a data de modificação do arquivo
+                    mtime = os.path.getmtime(full_path)
+                    recent_files.append({
+                        "file_name": file,
+                        "category": category,
+                        "subfolder": subfolder.replace('\\', '/'), # Garante o formato correto
+                        "mtime": mtime
+                    })
+    
+    # Ordena dos mais recentes para os mais antigos e pega o limite
+    recent_files.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"files": recent_files[:limit]}
 
 @app.post("/rename-file", dependencies=[Depends(verify_credentials)])
 async def rename_file(payload: FileActionPayload):
