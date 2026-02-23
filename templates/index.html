@@ -7,14 +7,26 @@
     <style>
         body { font-family: Arial, sans-serif; background-color: #1e1e2e; color: #cdd6f4; margin: 0; padding: 20px; }
         .container { max-width: 600px; margin: auto; background: #313244; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        h1 { color: #89b4fa; text-align: center; }
+        h1, h2 { color: #89b4fa; text-align: center; }
+        h2 { font-size: 1.5em; margin-top: 30px; }
         label { display: block; margin-top: 15px; font-weight: bold; }
         select, input, button { width: 100%; padding: 10px; margin-top: 5px; border-radius: 5px; border: 1px solid #45475a; background: #181825; color: #cdd6f4; box-sizing: border-box; }
         button { background-color: #a6e3a1; color: #11111b; font-weight: bold; cursor: pointer; border: none; margin-top: 20px; }
         button:hover { background-color: #94e2d5; }
+        .btn-blue { background-color: #89b4fa; }
+        .btn-blue:hover { background-color: #74c7ec; }
         #message { margin-top: 15px; text-align: center; font-weight: bold; color: #a6e3a1; }
         .current-path { background: #11111b; padding: 10px; border-radius: 5px; margin-top: 20px; font-family: monospace; }
         #new_subfolder_div { display: none; margin-top: 10px; padding: 10px; border-left: 3px solid #89b4fa; background: #1e1e2e;}
+        
+        /* Estilos para a lista de arquivos */
+        .file-list { list-style: none; padding: 0; margin-top: 15px; }
+        .file-item { background: #181825; padding: 10px; margin-bottom: 8px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; word-break: break-all; }
+        .file-actions { display: flex; gap: 5px; margin-left: 10px; flex-shrink: 0; }
+        .btn-rename { background-color: #f9e2af; margin-top: 0; width: auto; padding: 5px 10px; font-size: 0.9em; }
+        .btn-rename:hover { background-color: #f2cd32; }
+        .btn-delete { background-color: #f38ba8; margin-top: 0; width: auto; padding: 5px 10px; font-size: 0.9em; }
+        .btn-delete:hover { background-color: #eba0ac; }
     </style>
 </head>
 <body>
@@ -33,7 +45,7 @@
             <label for="subfolder_select">Subpasta (Série, Dorama, etc.):</label>
             <select id="subfolder_select" name="subfolder_select">
                 <option value="">Nenhuma (Salvar solto na raiz)</option>
-                </select>
+            </select>
 
             <div id="new_subfolder_div">
                 <label for="new_subfolder">Nome da Nova Subpasta:</label>
@@ -49,6 +61,17 @@
             <strong>Caminho Atual de Destino:</strong><br>
             /mnt/storage/docker/emby/<span id="display-cat">{{ current_config.category }}</span>/<span id="display-sub">{{ current_config.subfolder }}</span>
         </div>
+
+        <hr style="margin: 30px 0; border-color: #45475a;">
+
+        <h2>Gerenciar Arquivos</h2>
+        <p style="text-align: center; font-size: 0.9em;">Visualize, renomeie ou exclua os arquivos da pasta que está selecionada acima.</p>
+        
+        <button type="button" class="btn-blue" onclick="loadFiles()">Carregar Arquivos Desta Pasta</button>
+        
+        <div id="file-container">
+            </div>
+
     </div>
 
     <script>
@@ -57,18 +80,14 @@
         const newSubfolderDiv = document.getElementById('new_subfolder_div');
         const newSubfolderInput = document.getElementById('new_subfolder');
         
-        // Mantém a subpasta atual vinda do backend para tentar pré-selecionar
         const currentSubfolder = "{{ current_config.subfolder }}";
 
-        // Função para carregar as pastas existentes do backend
         async function loadSubfolders(category) {
             const res = await fetch(`/subfolders/${category}`);
             const data = await res.json();
             
-            // Limpa as opções atuais
             subfolderSelect.innerHTML = '<option value="">Nenhuma (Salvar solto na raiz)</option>';
             
-            // Adiciona as pastas existentes
             data.subfolders.forEach(sf => {
                 const opt = document.createElement('option');
                 opt.value = sf;
@@ -77,16 +96,17 @@
                 subfolderSelect.appendChild(opt);
             });
             
-            // Adiciona a opção de criar nova
             const newOpt = document.createElement('option');
             newOpt.value = 'NEW';
             newOpt.textContent = '+ Criar Nova Subpasta...';
             subfolderSelect.appendChild(newOpt);
 
             checkNewSubfolderToggle();
+            
+            // Limpa a lista de arquivos ao mudar de pasta
+            document.getElementById('file-container').innerHTML = '';
         }
 
-        // Mostra/Oculta o campo de digitar o nome da nova pasta
         function checkNewSubfolderToggle() {
             if (subfolderSelect.value === 'NEW') {
                 newSubfolderDiv.style.display = 'block';
@@ -96,13 +116,13 @@
                 newSubfolderInput.required = false;
                 newSubfolderInput.value = "";
             }
+            // Limpa a lista de arquivos ao mudar de pasta
+            document.getElementById('file-container').innerHTML = '';
         }
 
-        // Eventos
         categorySelect.addEventListener('change', (e) => loadSubfolders(e.target.value));
         subfolderSelect.addEventListener('change', checkNewSubfolderToggle);
 
-        // Submissão do formulário
         document.getElementById('configForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
@@ -116,19 +136,110 @@
             if(result.status === 'success') {
                 document.getElementById('message').innerText = result.message;
                 
-                // Atualiza o painel verde embaixo
                 let finalSub = formData.get('subfolder_select') === 'NEW' ? formData.get('new_subfolder') : formData.get('subfolder_select');
                 document.getElementById('display-cat').innerText = formData.get('category');
                 document.getElementById('display-sub').innerText = finalSub;
                 
                 setTimeout(() => document.getElementById('message').innerText = '', 3000);
                 
-                // Recarrega a lista para já mostrar a pasta recém criada sem precisar do botão +
                 loadSubfolders(categorySelect.value);
             }
         });
 
-        // Carrega a lista inicial quando a página abre
+        // --- FUNÇÕES DE GERENCIAMENTO DE ARQUIVOS --- //
+
+        // Pegar a categoria e subpasta atualmente selecionadas nos campos
+        function getCurrentTarget() {
+            const category = categorySelect.value;
+            let subfolder = subfolderSelect.value;
+            if (subfolder === 'NEW') subfolder = newSubfolderInput.value;
+            return { category, subfolder: subfolder || "" };
+        }
+
+        async function loadFiles() {
+            const target = getCurrentTarget();
+            const res = await fetch(`/list-files?category=${encodeURIComponent(target.category)}&subfolder=${encodeURIComponent(target.subfolder)}`);
+            const data = await res.json();
+            
+            const container = document.getElementById('file-container');
+            
+            if (!data.files || data.files.length === 0) {
+                container.innerHTML = '<p style="text-align:center; margin-top:20px;">Nenhum arquivo encontrado nesta pasta.</p>';
+                return;
+            }
+
+            let html = '<ul class="file-list">';
+            data.files.forEach(file => {
+                // Escapando aspas simples para não quebrar as funções onclick
+                const safeFile = file.replace(/'/g, "\\'"); 
+                html += `
+                    <li class="file-item">
+                        <span>${file}</span>
+                        <div class="file-actions">
+                            <button type="button" class="btn-rename" onclick="renameFile('${safeFile}')">Renomear</button>
+                            <button type="button" class="btn-delete" onclick="deleteFile('${safeFile}')">Excluir</button>
+                        </div>
+                    </li>
+                `;
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+       async function renameFile(oldName) {
+            // Remove a extensão .strm do nome atual para facilitar a edição
+            const nomeSemExtensao = oldName.replace('.strm', '');
+            
+            const novoNomeInput = prompt("Digite o novo nome para o arquivo (a extensão .strm será adicionada automaticamente):", nomeSemExtensao);
+            
+            if (novoNomeInput === null || novoNomeInput.trim() === "") return; // Cancelou ou deixou em branco
+            if (novoNomeInput === nomeSemExtensao) return; // Não alterou nada
+
+            const target = getCurrentTarget();
+            const res = await fetch('/rename-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    category: target.category,
+                    subfolder: target.subfolder,
+                    file_name: oldName,
+                    new_name: novoNomeInput
+                })
+            });
+
+            const result = await res.json();
+            if (result.status === 'success') {
+                alert(result.message);
+                loadFiles(); // Recarrega a lista para mostrar o novo nome
+            } else {
+                alert("Erro ao renomear: " + result.message);
+            }
+        }
+
+        async function deleteFile(fileName) {
+            const confirmacao = confirm(`ATENÇÃO!\nTem certeza que deseja EXCLUIR DEFINITIVAMENTE o arquivo:\n"${fileName}"?\n\nEsta ação não pode ser desfeita.`);
+            if (!confirmacao) return;
+
+            const target = getCurrentTarget();
+            const res = await fetch('/delete-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    category: target.category,
+                    subfolder: target.subfolder,
+                    file_name: fileName
+                })
+            });
+
+            const result = await res.json();
+            if (result.status === 'success') {
+                loadFiles(); // Recarrega a lista, o arquivo sumirá
+            } else {
+                alert("Erro ao excluir: " + result.message);
+            }
+        }
+
+        // Carrega inicial
         loadSubfolders(categorySelect.value);
     </script>
 </body>
