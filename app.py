@@ -6,6 +6,10 @@ from pydantic import BaseModel
 import os
 import re
 import secrets
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 security = HTTPBasic()
@@ -173,8 +177,34 @@ async def delete_file(payload: FileActionPayload):
 
 # --- WEBHOOK (MANTIDO LIVRE PARA RECEBER O POST) ---
 
+# Certifique-se de importar o 'logging' no topo do arquivo, junto com os outros imports:
+import logging
+
+# Configuração básica de log
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ... (resto do seu código) ...
+
+# --- WEBHOOK (MANTIDO LIVRE PARA RECEBER O POST) ---
+
 @app.post("/webhook")
-async def receive_webhook(payload: WebhookPayload):
+async def receive_webhook(payload: WebhookPayload, request: Request):
+    # 1. Log dos cabeçalhos da requisição (opcional, bom para debug)
+    logger.info("=== NOVA REQUISIÇÃO NO WEBHOOK ===")
+    logger.info(f"Headers: {request.headers}")
+    
+    # 2. Log detalhado do Payload recebido (O arquivo em si)
+    logger.info(f"Dados do Arquivo Recebido:")
+    logger.info(f" - Nome do arquivo: {payload.file_name}")
+    logger.info(f" - Tamanho do arquivo: {payload.file_size} bytes")
+    logger.info(f" - Tipo (MIME): {payload.mime_type}")
+    logger.info(f" - Link de Stream original: {payload.stream_link}")
+    
+    # 3. Log do dicionário completo gerado pelo Pydantic
+    logger.info(f"Payload completo (JSON convertido): {payload.model_dump()}")
+
+    # Processamento original
     clean_name = re.sub(r'\s*@\w+', '', payload.file_name).strip()
     
     if not clean_name.endswith('.strm'):
@@ -188,6 +218,10 @@ async def receive_webhook(payload: WebhookPayload):
     
     os.makedirs(target_dir, exist_ok=True)
     file_path = os.path.join(target_dir, clean_name)
+
+    logger.info(f"Salvando arquivo em: {file_path}")
+    logger.info(f"Conteúdo salvo (Link Interno): {internal_link}")
+    logger.info("==================================")
 
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(internal_link)
