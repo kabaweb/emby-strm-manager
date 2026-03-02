@@ -8,6 +8,7 @@ import re
 import secrets
 import logging
 
+# Configuração básica de log para vermos o que chega no webhook
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,8 @@ CATEGORIES = ["desenhos", "filmes", "novelas", "series", "anime", "dorama", "fil
 
 current_config = {
     "category": "filmes",
-    "subfolder": ""
+    "subfolder": "",
+    "use_text_as_name": False
 }
 
 ADMIN_USERNAME = os.getenv("WEB_USERNAME", "admin")
@@ -43,6 +45,7 @@ class WebhookPayload(BaseModel):
     file_size: int
     mime_type: str
     stream_link: str
+    text: str = None  # Novo campo adicionado (opcional)
 
 # Payload para as novas ações de arquivos
 class FileActionPayload(BaseModel):
@@ -73,7 +76,8 @@ async def get_subfolders(category: str):
 async def set_target(
     category: str = Form(...), 
     subfolder_select: str = Form(""), 
-    new_subfolder: str = Form("")
+    new_subfolder: str = Form(""),
+    use_text_as_name: bool = Form(False) # Recebe o valor do checkbox
 ):
     if subfolder_select == "NEW":
         final_subfolder = new_subfolder.strip()
@@ -86,13 +90,14 @@ async def set_target(
 
     current_config["category"] = category
     current_config["subfolder"] = final_subfolder
+    current_config["use_text_as_name"] = use_text_as_name # Salva a configuração
 
     return {
         "status": "success", 
         "message": f"Destino atualizado para: {category}/{final_subfolder}" if final_subfolder else f"Destino atualizado para: {category} (Raiz)"
     }
 
-# --- NOVAS ROTAS PARA GERENCIAR ARQUIVOS ---
+# --- ROTAS PARA GERENCIAR ARQUIVOS ---
 
 @app.get("/list-files", dependencies=[Depends(verify_credentials)])
 async def list_files(category: str, subfolder: str = ""):
@@ -153,7 +158,7 @@ async def rename_file(payload: FileActionPayload):
     new_path = os.path.join(target_dir, clean_new_name)
     
     if not os.path.exists(old_path):
-        return {"status": "error", "message": "O arquivo original não foi encontrado."}
+        return {"status": "error", "message": "O original não foi encontrado."}
         
     try:
         os.rename(old_path, new_path)
@@ -175,37 +180,32 @@ async def delete_file(payload: FileActionPayload):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# --- WEBHOOK (MANTIDO LIVRE PARA RECEBER O POST) ---
-
-# Certifique-se de importar o 'logging' no topo do arquivo, junto com os outros imports:
-import logging
-
-# Configuração básica de log
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ... (resto do seu código) ...
-
-# --- WEBHOOK (MANTIDO LIVRE PARA RECEBER O POST) ---
+# --- WEBHOOK ---
 
 @app.post("/webhook")
 async def receive_webhook(payload: WebhookPayload, request: Request):
-    # 1. Log dos cabeçalhos da requisição (opcional, bom para debug)
     logger.info("=== NOVA REQUISIÇÃO NO WEBHOOK ===")
-    logger.info(f"Headers: {request.headers}")
-    
-    # 2. Log detalhado do Payload recebido (O arquivo em si)
-    logger.info(f"Dados do Arquivo Recebido:")
-    logger.info(f" - Nome do arquivo: {payload.file_name}")
-    logger.info(f" - Tamanho do arquivo: {payload.file_size} bytes")
-    logger.info(f" - Tipo (MIME): {payload.mime_type}")
-    logger.info(f" - Link de Stream original: {payload.stream_link}")
-    
-    # 3. Log do dicionário completo gerado pelo Pydantic
-    logger.info(f"Payload completo (JSON convertido): {payload.model_dump()}")
+    logger.info(f"Payload recebido: {payload.model_dump()}")
 
-    # Processamento original
-    clean_name = re.sub(r'\s*@\w+', '', payload.file_name).strip()
+    # Escolhe qual será a base do nome do arquivo
+    base_name = payload.file_name
+    
+    # Se a opção estiver ativa e o webhook enviou algum texto
+    if current_config.get("use_text_as_name") and payload.text:
+        # Substitui quebras de linha por espaço
+        safe_text = payload.text.replace("\n", " ")
+        # Remove caracteres que o Linux/Windows não aceitam em nomes de arquivos
+        safe_text = re.sub(r'[\\/*?:"<>|]', "", safe_text)
+        # Limita o tamanho do nome a 150 caracteres para evitar erros do sistema e remove espaços extras
+        safe_text = safe_text.strip()[:150]
+        
+        # Só usa o texto se sobrou algo após a limpeza
+        if safe_text:
+            base_name = safe_text
+            logger.info(f"Usando legenda como nome: {base_name}")
+
+    # Limpa menções @
+    clean_name = re.sub(r'\s*@\w+', '', base_name).strip()
     
     if not clean_name.endswith('.strm'):
         clean_name += '.strm'
@@ -219,8 +219,7 @@ async def receive_webhook(payload: WebhookPayload, request: Request):
     os.makedirs(target_dir, exist_ok=True)
     file_path = os.path.join(target_dir, clean_name)
 
-    logger.info(f"Salvando arquivo em: {file_path}")
-    logger.info(f"Conteúdo salvo (Link Interno): {internal_link}")
+    logger.info(f"Salvando em: {file_path}")
     logger.info("==================================")
 
     with open(file_path, "w", encoding="utf-8") as f:
